@@ -1,5 +1,7 @@
 # Setup & Run Commands (GPU Cluster - Ubuntu 24.04)
 
+The default CMake build targets **NVIDIA T4** (Turing, SM 7.5). For other GPUs, override `CMAKE_CUDA_ARCHITECTURES` at build time (see [§8](#8-build-the-project)). Triton, models, and runtime flags are otherwise the same.
+
 ## 1. Verify GPU
 
 ```bash
@@ -82,18 +84,69 @@ curl -s localhost:8000/v2/models | python3 -m json.tool
 
 ## 8. Build the project
 
+CUDA kernels in this repo are compiled for a specific **compute capability** (`CMAKE_CUDA_ARCHITECTURES` in `CMakeLists.txt`). The default is **75** (T4). Building with the wrong value can fail at link time or produce binaries that do not run correctly on your GPU.
+
+### GPU → CUDA architecture
+
+| GPU | Architecture | `CMAKE_CUDA_ARCHITECTURES` |
+|-----|--------------|----------------------------|
+| NVIDIA T4 | Turing | `75` (default) |
+| RTX 30-series (3060, 3070, 3080, 3090) | Ampere | **`86`** |
+| A100 | Ampere | `80` |
+| A10, RTX A-series (e.g. A5000) | Ampere | `86` |
+| RTX 40-series, L4 | Ada Lovelace | `89` |
+| H100 | Hopper | `90` |
+
+Check your GPU’s compute capability: `nvidia-smi --query-gpu=name,compute_cap --format=csv` or the [CUDA GPUs list](https://developer.nvidia.com/cuda-gpus).
+
+### T4 (default)
+
 ```bash
 cd ~/process_image
 
-# T4 GPU (default, compute capability 75)
 cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
+```
 
-# For other GPUs, override the architecture:
-#   A100  → -DCMAKE_CUDA_ARCHITECTURES=80
-#   A10   → -DCMAKE_CUDA_ARCHITECTURES=86
-#   L4    → -DCMAKE_CUDA_ARCHITECTURES=89
-#   H100  → -DCMAKE_CUDA_ARCHITECTURES=90
+### NVIDIA RTX 30-series (Ampere, SM 8.6)
+
+Use this when building on or for RTX 3060 / 3070 / 3080 / 3090 (and similar Ampere consumer cards). Steps 1–7 above are unchanged; only the CMake architecture flag differs.
+
+```bash
+cd ~/process_image
+
+# Clean rebuild if you previously built for T4 (sm_75)
+rm -rf build
+
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=86
+cmake --build build -j$(nproc)
+```
+
+**Notes for 30-series:**
+
+- Install **FAISS-GPU** (conda `faiss-gpu`), not CPU-only FAISS, so matching runs on the GPU.
+- Consumer cards often have **less VRAM than T4 (16 GB)**; reduce concurrent `video_analytics_service` sessions or per-frame face limits if you see CUDA OOM.
+- Latency is typically **at or below** the T4 ~13 ms target; no code changes are required beyond the correct `CMAKE_CUDA_ARCHITECTURES`.
+
+**Build on the same machine as the GPU** (optional):
+
+```bash
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=native
+```
+
+Use an explicit value (`86`, `75`, etc.) when the build host GPU differs from the deployment GPU.
+
+### Other GPUs (one-liner)
+
+```bash
+# A100
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=80
+
+# RTX 40-series / L4
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=89
+
+# H100
+cmake -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_CUDA_ARCHITECTURES=90
 ```
 
 ## 9. Enroll faces into the database

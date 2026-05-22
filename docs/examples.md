@@ -51,6 +51,7 @@ python3 tools/enroll_faces.py \
 ```
 
 **Output:**
+
 ```
 Connecting to Triton at localhost:8001... OK
 Processing alice/ (3 images)...
@@ -104,6 +105,7 @@ python3 tools/enroll_faces.py \
 ```
 
 **Output:**
+
 ```
 process_image v0.1
   Input:       /path/to/video.mp4
@@ -288,15 +290,19 @@ sqlite3 faces.db "SELECT COUNT(*) FROM faces;"
 
 ## Performance Expectations
 
-| Setup | Latency | FPS | Notes |
-|-------|---------|-----|-------|
-| T4 GPU, 1080p, 5 faces | ~13 ms | ~77 | Target spec |
-| T4 GPU, 1080p, 0 faces | ~8 ms | ~125 | No ArcFace/FAISS needed |
-| CPU (Mac M2), 1080p, 5 faces | ~150 ms | ~6-7 | Functional, not real-time |
-| CPU (Mac M2), 720p, 2 faces | ~80 ms | ~12 | Reduced resolution helps |
-| CPU (Intel i7), 1080p, 5 faces | ~200 ms | ~5 | Varies by CPU |
+
+| Setup                          | Latency | FPS  | Notes                     |
+| ------------------------------ | ------- | ---- | ------------------------- |
+| T4 GPU, 1080p, 5 faces         | ~13 ms  | ~77  | Target spec               |
+| T4 GPU, 1080p, 0 faces         | ~8 ms   | ~125 | No ArcFace/FAISS needed   |
+| CPU (Mac M2), 1080p, 5 faces   | ~150 ms | ~6-7 | Functional, not real-time |
+| CPU (Mac M2), 720p, 2 faces    | ~80 ms  | ~12  | Reduced resolution helps  |
+| CPU (Intel i7), 1080p, 5 faces | ~200 ms | ~5   | Varies by CPU             |
+
 
 To improve CPU mode performance:
+
 - Use lower resolution input (720p instead of 1080p)
 - Reduce confidence threshold to skip more non-face regions early
 - Ensure Triton is using all available CPU cores
+
