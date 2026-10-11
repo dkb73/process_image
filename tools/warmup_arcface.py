@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
-"""Warm ArcFace cuDNN algorithms for every batch size.
+"""Warm ArcFace for every batch size 1..max-batch.
 
-Triton's ONNX Runtime backend uses exhaustive convolution search. The first
-request for each input shape [N, 3, 112, 112] can take 1-2 seconds. N is the
-face count in a frame. This sends one zero-filled request per batch size so
-later video and RTSP frames do not pay that cost.
+With ONNX Runtime + TensorRT FP16, the first request per shape [N, 3, 112, 112]
+can be slow while TensorRT engines build or load from trt_cache. N is the face
+count in a frame. This script sends one zero-filled request per batch size so
+normal video frames do not pay that cost.
 
-The cache lives in the Triton process. Run this after every container start,
-once the arcface model is ready, and before processing video.
+Run after every Triton container start (or use warmup_triton.py for YOLO too),
+once models are ready, and before processing video. Switching input files does
+not require re-warming if Triton stays up.
 """
 
 import argparse

@@ -22,7 +22,41 @@ pip install onnx onnxruntime numpy opencv-python insightface ultralytics
 python3 tools/download_models.py --real --gpu
 ```
 
-## 4. Start Triton server
+## 4. Restore TensorRT engine cache (recommended)
+
+Skips the **multi-hour** cold TensorRT build on a **Tesla T4 (sm75)** with Triton
+`24.01` and the FP16 `config.pbtxt` in this repo. The bundle is versioned in git:
+
+`assets/trt_engine_cache_t4_sm75_fp16.zip`
+
+```bash
+cd ~/process_image
+python3 tools/restore_trt_cache.py
+```
+
+Dry-run (list files only):
+
+```bash
+python3 tools/restore_trt_cache.py --dry-run
+```
+
+**When to run**
+
+| Situation | Command |
+|-----------|---------|
+| New clone / wiped `models/`, after step 3 | `python3 tools/restore_trt_cache.py` |
+| You rebuilt engines after a Triton/TRT upgrade | `python3 tools/pack_trt_cache.py` then commit the updated zip |
+| Zip already restored; only Triton restarted | Skip step 4; run step 9 warmup (~seconds) |
+| No T4 / different GPU | Skip step 4; use step 9 warmup (slow first time) |
+
+## 5. Start Triton server
+
+Models use **ONNX Runtime + TensorRT FP16** (see `config.pbtxt` under each model).
+TensorRT engine files are cached under `models/model_repository/*/trt_cache/` on the
+host (same volume mount as `/models` in the container).
+
+**First start after enabling TRT** can take noticeably longer while engines build.
+Subsequent starts reuse `trt_cache/` when paths match.
 
 ```bash
 docker run --gpus all -d --name triton \
@@ -33,7 +67,7 @@ docker run --gpus all -d --name triton \
       --backend-config=onnxruntime,default-max-batch-size=8
 ```
 
-## 5. Check if the server is running
+## 6. Check if the server is running
 
 ```bash
 curl -s -o /dev/null -w "live %{http_code}\n" localhost:8000/v2/health/live
@@ -44,7 +78,7 @@ curl -s localhost:8000/v2/models/arcface | python3 -m json.tool
 
 `ready` must be `200` before continuing.
 
-## 6. Build
+## 7. Build
 
 ```bash
 cd ~/process_image
@@ -52,22 +86,34 @@ cmake -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build -j$(nproc)
 ```
 
-## 7. Install the Triton Python client
+## 8. Install the Triton Python client
 
 ```bash
 pip install "tritonclient[grpc]"
 ```
 
-## 8. Warm ArcFace batch sizes
+## 9. Warm Triton models (YOLO + ArcFace)
 
-Run this after every Triton container start, before any video. It sends one zero tensor per batch size `1..32` straight to the `arcface` model. The first pass is slow. Later frames with those face counts skip the cuDNN search. The cache dies when the container stops.
+Run after every Triton container start, before any video. After **step 4** this
+is usually **~1–2 seconds** (loads cached engines). Without step 4, the first
+run can take a long time while engines build. Changing video files does **not**
+require re-warming if Triton was left running.
 
 ```bash
 cd ~/process_image
+python3 tools/warmup_triton.py --triton localhost:8001
+```
+
+Or separately:
+
+```bash
+python3 tools/warmup_yolo.py --triton localhost:8001
 python3 tools/warmup_arcface.py --triton localhost:8001
 ```
 
-## 9. Enroll faces into the database
+Full plan and rollback: `docs/implementation-details/phase-14-tensorrt-fp16.md`.
+
+## 10. Enroll faces into the database
 
 `faces/` must contain one subfolder per person.
 
@@ -80,7 +126,7 @@ python3 tools/enroll_faces.py \
 
 ## Metrics-only run
 
-After steps 1–9, this writes per-frame metrics and a detections CSV. Skip steps 10 and 11 when you only want those files.
+After steps 1–10, this writes per-frame metrics and a detections CSV. Skip steps 11 and 12 when you only want those files.
 
 ```bash
 ./build/process_image \
@@ -90,7 +136,7 @@ After steps 1–9, this writes per-frame metrics and a detections CSV. Skip step
   --device auto
 ```
 
-## 10. Run the pipeline
+## 11. Run the pipeline
 
 ```bash
 ./build/video_analytics_service \
@@ -101,7 +147,7 @@ After steps 1–9, this writes per-frame metrics and a detections CSV. Skip step
   --device auto
 ```
 
-## 11. Streamlit server
+## 12. Streamlit server
 
 ```bash
 cd ~/process_image
@@ -123,4 +169,7 @@ echo "$LIGHTNING_CLOUD_SPACE_ID"
 
 ## After a studio or container restart
 
-Triton and the ArcFace cache do not survive a new container. Repeat from step 4, then step 5, then step 8, before step 9 or a metrics run. Steps 1–3 and 6–7 can be skipped when the build and packages are already there.
+Repeat from step 5, then step 6, then step 9, before step 10 or a metrics run.
+
+If `models/` was deleted, run step 3 then **step 4** (`restore_trt_cache.py`) before
+starting Triton. Steps 1–3, 7–8 can be skipped when the build and packages already exist.
